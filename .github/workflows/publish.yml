@@ -1,0 +1,68 @@
+name: Publish Minecraft Image to ECR
+
+# Trigger the workflow only when a tag starting with 'v' is pushed
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      #get aws credentials from secrets and configure AWS CLI
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      #Login to ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      #Acquire the upstream image
+      #Using itzg/minecraft-server image as our base
+      - name: Pull upstream Minecraft image
+        run: docker pull itzg/minecraft-server:latest
+
+      #'docker run' will exit before it fails or succeeds.
+      #Use a polling loop to check the logs for the word "Done".
+      - name: Run Smoke Test
+        run: |
+          echo "Starting test container..."
+          docker run -d -p 25565:25565 -e EULA=TRUE -e VERSION=1.20.4 --name mc-smoke itzg/minecraft-server:latest
+          
+          # Poll the logs every 10 seconds, up to 15 times (2.5 minutes total)
+          for i in $(seq 1 15); do
+            if docker logs mc-smoke | grep -q 'Done'; then
+              echo "Success! Minecraft server initialized properly."
+              docker stop mc-smoke
+              exit 0
+            fi
+            echo "Waiting for server to start... attempt $i/15"
+            sleep 10
+          done
+          
+          echo "Smoke test failed. The server took too long or crashed."
+          docker logs mc-smoke
+          exit 1
+
+      #tag and Push to your ECR Repo
+      - name: Tag and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: minecraft-server
+          #Extracts just the tag name from the GitHub ref
+          IMAGE_TAG: ${{ github.ref_name }} 
+        run: |
+          docker tag itzg/minecraft-server:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "Successfully pushed $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
