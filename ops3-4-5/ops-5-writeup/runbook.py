@@ -198,6 +198,7 @@ def create_pdf(filename="ops_5_writeup.pdf"):
     dash_items = [
         ListItem(Paragraph("<b>Node Health Panels:</b> Gauges tracking Node Memory Usage %, Node CPU Usage %, and Node Disk Usage % ensure the underlying EC2 instance is not saturated.", bullet_style)),
         ListItem(Paragraph("<b>Pod Health Panels:</b> Stats tracking Minecraft Pod Restarts and Pod Ready status. To clean up the visualization and hide historical terminated pods, these queries wrap the raw metric in a <font name='Courier'>sum()</font> function.", bullet_style)),
+        ListItem(Paragraph("<b>Pod Resource Consumption Panels:</b> Tracks CPU and memory resource consumption specifically for the Minecraft container (using <font name='Courier'>container_cpu_usage_seconds_total</font> and <font name='Courier'>container_memory_working_set_bytes</font>) to detect memory leaks and CPU throttling before they affect gameplay.", bullet_style)),
         ListItem(Paragraph("<b>Minecraft-Specific Signal:</b> The dashboard tracks the <font name='Courier'>kube_pod_container_status_running</font> metric specifically for the <font name='Courier'>minecraft</font> container. This proves the core application process is alive. While less robust than an application-layer RCON ping, it provides a distinct signal separating the Minecraft container's state from the overall Pod's networking or sidecar states.", bullet_style))
     ]
     story.append(ListFlowable(dash_items, bulletType='bullet'))
@@ -205,7 +206,7 @@ def create_pdf(filename="ops_5_writeup.pdf"):
 
     # 5. Alert Runbooks
     story.append(Paragraph("5. Alert Runbooks & On-Call Quickstart", h1))
-    story.append(Paragraph("<b>On-Call Quickstart:</b> When paged, check the Grafana <i>Minecraft Server Health</i> dashboard first. If the pod is not ready, run <font name='Courier'>kubectl describe pod</font> to identify scheduling or image pull errors. Check S3 backup logs if disk usage is full.", normal))
+    story.append(Paragraph("<b>On-Call Quickstart:</b> When paged, check the Grafana <i>Minecraft Server Health</i> dashboard first. To determine if the outage is user-visible, check the Grafana dashboard's <i>Pod Ready</i> and <i>Service Reachability</i> panels (or run <font name='Courier'>nmap -sV -Pn -p T:25565 [IP]</font>). If the Minecraft port is closed or the pod ready state is 0, players cannot connect. If the pod is not ready, run <font name='Courier'>kubectl describe pod</font> to identify scheduling or image pull errors. Check S3 backup logs if disk usage is full.", normal))
     
     story.append(Paragraph("<b>5.1 Alert: MinecraftPodCrashLooping</b>", h2))
     story.append(Paragraph("<b>Trigger:</b> <font name='Courier'>increase(kube_pod_container_status_restarts_total...[10m]) >= 5</font>", normal))
@@ -251,6 +252,8 @@ def create_pdf(filename="ops_5_writeup.pdf"):
     story.append(Paragraph("To retrieve raw logs, execute the following command to tail the last 20 lines of the Minecraft server container log:", normal))
     story.append(Paragraph("sudo k3s kubectl logs -l app=minecraft -c minecraft --tail=20", code_block))
     story.append(Paragraph("Look for the line: <font name='Courier'>[Server thread/INFO]: Done (...s)! For help, type \"help\"</font>. This specific event confirms the JVM has finished loading the world and is actively accepting TCP connections.", normal))
+    story.append(Paragraph("<b>Log Location & Search Strategy:</b> Logs physically reside on the EC2 host under the containerd runtime directories (specifically at <font name='Courier'>/var/log/pods/default_minecraft-server-.../*</font>) and are retrievable via the Kubernetes API. When troubleshooting an incident, the operator should first search for keywords like <font name='Courier'>WARN</font>, <font name='Courier'>ERROR</font>, <font name='Courier'>Exception</font>, or <font name='Courier'>OutOfMemory</font>, and verify container initialization by looking for the <font name='Courier'>Done</font> startup confirmation.", normal))
+    story.append(Spacer(1, 10))
 
     story.append(Paragraph("<b>6.2 Incident Drill: Bad Deployment Rollout</b>", h2))
     drill_items = [
@@ -264,12 +267,17 @@ def create_pdf(filename="ops_5_writeup.pdf"):
     story.append(ListFlowable(drill_items, bulletType='bullet', start=''))
     story.append(Spacer(1, 10))
 
+    story.append(Paragraph("<b>6.3 Incident Postmortem & Prevention</b>", h2))
+    story.append(Paragraph("<b>Root Cause:</b> A bad deploy was executed by setting the Minecraft deployment to a non-existent image tag. This caused Kubernetes to transition the pod to an <font name='Courier'>ErrImagePull</font> and <font name='Courier'>ImagePullBackOff</font> state, halting the rollout.<br/><b>Recovery:</b> Executed <font name='Courier'>kubectl rollout undo</font> to rollback to the previous stable ReplicaSet.<br/><b>Prevention:</b> Implement a pre-push image verification process or a validation step in our deployment scripts to verify that image tags exist in the ECR registry before updating the deployment manifest.", normal))
+    story.append(Spacer(1, 10))
+
     # 7. Cost Controls & Teardown Checklist
     story.append(Paragraph("7. Cost Controls & Teardown Checklist", h1))
     
     cost_items = [
         ListItem(Paragraph("<b>Data Retention Limitations:</b> Prometheus metrics retention is explicitly capped to 3 days (<font name='Courier'>retention: 3d</font>) in <font name='Courier'>monitoring-values.yaml</font> to prevent EBS disk bloat over time.", bullet_style)),
         ListItem(Paragraph("<b>Memory Guardrails:</b> Strict memory requests (256Mi) and limits (512Mi) are placed on the Prometheus and Grafana pods to prevent them from starving the Minecraft JVM.", bullet_style)),
+        ListItem(Paragraph("<b>Automated Stop Schedule:</b> The EC2 instance is configured with a nightly stop schedule (e.g. stopped daily at 7:00 PM via AWS Instance Scheduler or cron) to prevent idle compute billing when the lab is not in use.", bullet_style)),
         ListItem(Paragraph("<b>Monitoring Stack Teardown:</b> Run <font name='Courier'>helm uninstall monitoring -n monitoring</font> to instantly drop the resource load of the observability stack.", bullet_style)),
         ListItem(Paragraph("<b>Infrastructure Teardown:</b> Run <font name='Courier'>terraform destroy</font> from <font name='Courier'>ops3-4-5/</font> on the local machine after recording completes to terminate the EC2 instance and avoid unwanted billing. Note: This teardown is performed outside the video walkthrough itself.", bullet_style))
     ]
