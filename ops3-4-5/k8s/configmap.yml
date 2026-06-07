@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minecraft-config
+  namespace: default
+data:
+  # EULA acceptance
+  EULA: "TRUE"
+  MOTD: "Dean Leon's Server 934513949"
+  # JVM heap allocation
+  MEMORY: "2G"
+  # RCON: enables remote console access used by minecraft-exporter
+  # to collect player count and server health metrics for Prometheus.
+  # RCON is bound only inside the pod network; it is not exposed externally.
+  ENABLE_RCON: "true"
+  RCON_PORT: "25575"

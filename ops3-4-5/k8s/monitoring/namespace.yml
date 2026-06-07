@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    # Standard label used by kube-prometheus-stack for namespace discovery.
+    app.kubernetes.io/managed-by: helm

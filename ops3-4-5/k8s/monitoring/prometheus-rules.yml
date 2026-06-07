@@ -1,0 +1,98 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: minecraft-alerts
+  namespace: monitoring
+  labels:
+    # This label is required for kube-prometheus-stack to pick up the rule.
+    release: monitoring
+spec:
+  groups:
+    - name: minecraft.availability
+      rules:
+        # ── Alert 1: Pod Crash Looping ──────────────────────────────────────
+        # Symptom: The Minecraft pod is repeatedly restarting, meaning the
+        # server is unavailable to players. Five restarts within 10 minutes
+        # indicates a genuine crash loop rather than a one-off startup hiccup.
+        # Player impact: DIRECT — server is unreachable while pod is restarting.
+        # Runbook: See Section 3.1 of ops-5-writeup.
+        - alert: MinecraftPodCrashLooping
+          expr: |
+            increase(
+              kube_pod_container_status_restarts_total{
+                namespace="default",
+                pod=~"minecraft-server.*",
+                container="minecraft"
+              }[10m]
+            ) >= 5
+          for: 1m
+          labels:
+            severity: critical
+            team: ops
+          annotations:
+            summary: "Minecraft server is crash looping"
+            description: >
+              Pod {{ $labels.pod }} has restarted {{ $value | printf "%.0f" }}
+              times in the last 10 minutes. Players cannot connect while the
+              pod is cycling. Investigate with kubectl describe and kubectl logs.
+            runbook: "ops-5-writeup/runbooks.md#31-minecraftpodcrashloping"
+
+    - name: minecraft.resources
+      rules:
+        # ── Alert 2: Node Memory Pressure ──────────────────────────────────
+        # Symptom: The EC2 node is using more than 85% of available memory.
+        # At this level the kernel OOM killer may terminate the Minecraft JVM,
+        # causing unexpected server crashes. Threshold is set at 85% (not 90%)
+        # to give the operator time to act before OOM occurs.
+        # Player impact: INDIRECT — server will crash if pressure is not relieved.
+        # Runbook: See Section 3.2 of ops-5-writeup.
+        - alert: NodeMemoryPressureHigh
+          expr: |
+            (
+              1 - (
+                node_memory_MemAvailable_bytes
+                / node_memory_MemTotal_bytes
+              )
+            ) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+            team: ops
+          annotations:
+            summary: "Node memory usage above 85%"
+            description: >
+              Node memory utilization is {{ $value | printf "%.1f" }}%, above
+              the 85% threshold. Sustained at this level, the OOM killer may
+              terminate the Minecraft JVM. Check for memory leaks or unexpected
+              processes before the server crashes.
+            runbook: "ops-5-writeup/runbooks.md#32-nodememory-pressurehigh"
+
+        # ── Alert 3: Disk Usage High ────────────────────────────────────────
+        # Symptom: The root volume (20GB gp3) is more than 80% full (~16GB).
+        # Causes include Minecraft world data growth, Prometheus TSDB growth,
+        # or containerd image cache. If disk fills completely, the world cannot
+        # be saved, risking data corruption or a server crash.
+        # Player impact: INDIRECT — full disk causes world save failures and
+        # eventual server crash.
+        # Runbook: See Section 3.3 of ops-5-writeup.
+        - alert: NodeDiskUsageHigh
+          expr: |
+            (
+              1 - (
+                node_filesystem_avail_bytes{mountpoint="/", fstype!="tmpfs"}
+                / node_filesystem_size_bytes{mountpoint="/", fstype!="tmpfs"}
+              )
+            ) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+            team: ops
+          annotations:
+            summary: "Root disk usage above 80%"
+            description: >
+              Root filesystem is {{ $value | printf "%.1f" }}% full on
+              mountpoint /. Minecraft world saves and Prometheus TSDB writes
+              will fail if disk fills completely. Identify large consumers with
+              `du -sh /*` and consider triggering an S3 backup and pruning
+              old data.
+            runbook: "ops-5-writeup/runbooks.md#33-nodediskusagehigh"

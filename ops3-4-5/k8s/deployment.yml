@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-server
+  namespace: default
+  labels:
+    app: minecraft
+spec:
+  # Multiple replicas would split world state, so we intentionally stay at 1.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minecraft
+  strategy:
+    # Recreate stops the old pod before starting the new one.
+    # This prevents two Minecraft processes from simultaneously holding
+    # the same PVC.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: minecraft
+      annotations:
+        # Tells Prometheus to scrape the minecraft-exporter sidecar on port 9150.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9150"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        # ── Main Minecraft container ──────────────────────────────────────────
+        - name: minecraft
+          # Pinned ECR image tag
+          image: 998487032255.dkr.ecr.us-east-1.amazonaws.com/minecraft-server:v1.20.4
+          ports:
+            - containerPort: 25565
+              protocol: TCP
+            - containerPort: 25575
+              protocol: TCP
+              name: rcon
+
+          envFrom:
+            - configMapRef:
+                name: minecraft-config
+
+          env:
+            # RCON password sourced from Secret, not ConfigMap.
+            - name: RCON_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minecraft-rcon-secret
+                  key: RCON_PASSWORD
+
+          # Resource controls.
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "2500Mi"
+              cpu: "2000m"
+
+          # startupProbe: allows up to 10 * 30s = 300s for initial startup.
+          # Once it succeeds once, Kubernetes hands off to liveness/readiness.
+          startupProbe:
+            tcpSocket:
+              port: 25565
+            failureThreshold: 10
+            periodSeconds: 30
+
+          # livenessProbe: restarts the container if the TCP port stops responding.
+          livenessProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 0
+            periodSeconds: 30
+            failureThreshold: 3
+
+          # readinessProbe: gates Service traffic until the port is open.
+          readinessProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 0
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # Persistent Volume Mount
+          volumeMounts:
+            - name: world-data
+              mountPath: /data
+
+        # ── minecraft-exporter sidecar ────────────────────────────────────────
+        # Connects to the Minecraft server via RCON and exposes Prometheus
+        # metrics on :9150/metrics. Signals exposed: online player count,
+        # server version, and RCON reachability (a proxy for true app health,
+        # stronger than a raw TCP port check).
+        - name: minecraft-exporter
+          image: ghcr.io/dirien/minecraft-prometheus-exporter:latest
+          ports:
+            - containerPort: 9150
+              name: metrics
+          env:
+            - name: RCON_HOST
+              value: "localhost"
+            - name: RCON_PORT
+              value: "25575"
+            - name: RCON_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minecraft-rcon-secret
+                  key: RCON_PASSWORD
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+
+      volumes:
+        - name: world-data
+          persistentVolumeClaim:
+            claimName: minecraft-world-pvc

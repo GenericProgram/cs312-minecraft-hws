@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: minecraft-s3-backup
+  namespace: default
+spec:
+  # Run every 6 hours
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              # Use the AWS CLI image for a lightweight backup container
+              image: amazon/aws-cli:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  echo "Starting S3 backup..."
+                  aws s3 sync /data/ s3://ops3-minecraft-bucket/ --region us-east-1
+                  echo "Backup complete."
+              # IAM instance profile on the node provides AWS credentials —
+              # no secrets or env vars with credentials needed here.
+              env:
+                - name: AWS_DEFAULT_REGION
+                  value: "us-east-1"
+              volumeMounts:
+                - name: world-data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: world-data
+              persistentVolumeClaim:
+                claimName: minecraft-world-pvc

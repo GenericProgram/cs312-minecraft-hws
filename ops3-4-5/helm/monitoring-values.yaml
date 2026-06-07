@@ -1,0 +1,120 @@
+# monitoring-values.yaml
+# Helm values for kube-prometheus-stack on single-node k3s (t3.large, 8GB RAM).
+#
+# Memory budget (Minecraft=2.5Gi, OS+k3s=~400MB, leaves ~5GB for monitoring):
+#   Prometheus:    512Mi limit
+#   Grafana:       256Mi limit
+#   Alertmanager:  128Mi limit
+#   Node exporter: 64Mi  limit
+#
+# Cost controls:
+#   - Retention: 3 days (limits disk growth on 20GB root volume)
+#   - Storage:   3Gi PVC for Prometheus (local-path, same node disk)
+#   - To tear down: helm uninstall monitoring -n monitoring
+#                   kubectl delete pvc -n monitoring --all
+
+prometheus:
+  prometheusSpec:
+    # 3-day retention keeps disk usage bounded on the 20GB root volume.
+    retention: 3d
+    # Scrape every 30s — sufficient for a lab; reduces write amplification.
+    scrapeInterval: "30s"
+    evaluationInterval: "30s"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 3Gi
+
+    # Scrape pods that have the prometheus.io/scrape annotation (picks up
+    # the minecraft-exporter sidecar automatically).
+    additionalScrapeConfigs:
+      - job_name: "minecraft-exporter"
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ["default"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: "${1}:9150"
+            source_labels: [__meta_kubernetes_pod_ip]
+          - source_labels:
+              - __meta_kubernetes_pod_ip
+              - __meta_kubernetes_pod_annotation_prometheus_io_port
+            separator: ":"
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+
+grafana:
+  # Keep Grafana internal — access via SSH tunnel:
+  #   ssh -L 3000:localhost:3000 ubuntu@<ec2-ip>
+  # then browse http://localhost:3000
+  service:
+    type: ClusterIP
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  # Default admin credentials — change after first login.
+  adminUser: admin
+  adminPassword: "changeme123"
+
+  # Persist dashboards and datasources across pod restarts.
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 1Gi
+
+  # Auto-provision the Prometheus datasource.
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://monitoring-kube-prometheus-prometheus.monitoring.svc:9090
+          isDefault: true
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "20m"
+      limits:
+        memory: "128Mi"
+        cpu: "100m"
+
+# Node exporter: collects CPU, memory, disk metrics from the EC2 host.
+nodeExporter:
+  enabled: true
+
+# kube-state-metrics: exposes pod restarts, readiness, resource consumption.
+kubeStateMetrics:
+  enabled: true
