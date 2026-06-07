@@ -7,6 +7,10 @@ data:
   # EULA acceptance
   EULA: "TRUE"
   MOTD: "Dean Leon's Server 934513949"
+  # Pinned Minecraft version — prevents itzg/minecraft-server from
+  # auto-resolving LATEST, which can pull a newer version requiring
+  # a newer JVM than the image provides.
+  VERSION: "1.20.4"
   # JVM heap allocation
   MEMORY: "2G"
   # RCON: enables remote console access used by minecraft-exporter
