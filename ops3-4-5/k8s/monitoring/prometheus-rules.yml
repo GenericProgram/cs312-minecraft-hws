@@ -15,7 +15,7 @@ spec:
         # server is unavailable to players. Five restarts within 10 minutes
         # indicates a genuine crash loop rather than a one-off startup hiccup.
         # Player impact: DIRECT — server is unreachable while pod is restarting.
-        # Runbook: See Section 3.1 of ops-5-writeup.
+        # Runbook: See Section 5.1 of ops-5-writeup.
         - alert: MinecraftPodCrashLooping
           expr: |
             increase(
@@ -45,7 +45,7 @@ spec:
         # causing unexpected server crashes. Threshold is set at 85% (not 90%)
         # to give the operator time to act before OOM occurs.
         # Player impact: INDIRECT — server will crash if pressure is not relieved.
-        # Runbook: See Section 3.2 of ops-5-writeup.
+        # Runbook: See Section 5.2 of ops-5-writeup.
         - alert: NodeMemoryPressureHigh
           expr: |
             (
@@ -74,7 +74,7 @@ spec:
         # be saved, risking data corruption or a server crash.
         # Player impact: INDIRECT — full disk causes world save failures and
         # eventual server crash.
-        # Runbook: See Section 3.3 of ops-5-writeup.
+        # Runbook: See Section 5.3 of ops-5-writeup.
         - alert: NodeDiskUsageHigh
           expr: |
             (

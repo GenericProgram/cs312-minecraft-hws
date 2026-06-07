@@ -97,7 +97,7 @@ def create_pdf(filename="ops_5_writeup.pdf"):
         ["AWS Region", "us-east-1"],
         ["Instance", "t3.large, Ubuntu 22.04 LTS, 20 GB gp3"],
         ["Kubernetes", "k3s v1.35.5+k3s1 (single-node)"],
-        ["Image", "itzg/minecraft-server:v1.20.4"]
+        ["Image", "998487032255.dkr.ecr.us-east-1.amazonaws.com/minecraft-server:v1.20.4"]
     ]
     formatted_info_data = [
         [Paragraph(row[0], info_label_style), Paragraph(row[1], info_val_style)]
@@ -130,7 +130,7 @@ def create_pdf(filename="ops_5_writeup.pdf"):
         story.append(Spacer(1, 10))
     else:
         story.append(Paragraph("<i>[Error: architecture.png not found]</i>", normal))
-    story.append(Paragraph("The architecture builds upon the Ops 4 baseline. A <font name='Courier'>kube-prometheus-stack</font> is deployed via Helm into a dedicated <font name='Courier'>monitoring</font> namespace. Prometheus scrapes node health via the Node Exporter daemonset and pod health via kube-state-metrics. Grafana visualizes this data, accessed securely via an SSH port-forward tunnel rather than exposing a public endpoint.", normal))
+    story.append(Paragraph("The architecture builds upon the Ops 4 baseline, integrating the Minecraft server workload (with a <font name='Courier'>minecraft-exporter</font> sidecar) alongside the monitoring components in a dedicated <font name='Courier'>monitoring</font> namespace. The Minecraft server container image is pulled from a secure AWS ECR registry, and persistent world state backups are synchronized to an AWS S3 bucket. Prometheus scrapes host-level metrics via the Node Exporter daemonset, pod-level metrics via kube-state-metrics, and application-level metrics via the Minecraft exporter. Grafana provides visualization of these metrics, which is accessed securely via an SSH port-forward tunnel rather than exposing Grafana or Prometheus to the public web.", normal))
     story.append(Spacer(1, 10))
 
     # 2. Repository File Map
@@ -142,8 +142,13 @@ def create_pdf(filename="ops_5_writeup.pdf"):
         ["k8s/monitoring/namespace.yml", "Namespace isolation for the observability stack."],
         ["k8s/monitoring/prometheus-rules.yml", "Declarative Prometheus alerts (CrashLoop, Mem/Disk pressure)."],
         ["ops-5-writeup/ops_5_writeup.pdf", "Self-contained PDF documentation including architecture, runbooks, and incident postmortem."],
-        ["playbook.yml", "Updated Ansible playbook triggering k3s, fixing ECR JSON, and applying secrets."],
-        ["k8s/configmap.yml", "Minecraft environment variables (Pinned to VERSION 1.20.4 to prevent Java 21 crash)."],
+        ["playbook.yml", "Updated Ansible playbook triggering k3s, configuring ECR/S3, and applying manifests."],
+        ["k8s/deployment.yml", "Minecraft server deployment containing the primary server container, the RCON prometheus-exporter sidecar, and liveness/readiness/startup probes."],
+        ["k8s/configmap.yml", "Minecraft environment variables (pinned to version 1.20.4 to prevent Java 21 crash)."],
+        ["k8s/service.yml", "Kubernetes Service exposing Minecraft TCP (25565) and RCON (25575) ports."],
+        ["k8s/pvc.yml", "Persistent Volume Claim mapping the Minecraft world-data directory to persistent host storage."],
+        ["k8s/rcon-secret.yml", "Kubernetes Secret storing the sensitive RCON password securely."],
+        ["k8s/backup-cronjob.yml", "Kubernetes CronJob for automated world-state synchronization to S3."],
         ["terraform.tfvars", "Terraform variables reflecting the t3.large instance scaling."]
     ]
     file_code_style = ParagraphStyle(
@@ -199,7 +204,7 @@ def create_pdf(filename="ops_5_writeup.pdf"):
         ListItem(Paragraph("<b>Node Health Panels:</b> Gauges tracking Node Memory Usage %, Node CPU Usage %, and Node Disk Usage % ensure the underlying EC2 instance is not saturated.", bullet_style)),
         ListItem(Paragraph("<b>Pod Health Panels:</b> Stats tracking Minecraft Pod Restarts and Pod Ready status. To clean up the visualization and hide historical terminated pods, these queries wrap the raw metric in a <font name='Courier'>sum()</font> function.", bullet_style)),
         ListItem(Paragraph("<b>Pod Resource Consumption Panels:</b> Tracks CPU and memory resource consumption specifically for the Minecraft container (using <font name='Courier'>container_cpu_usage_seconds_total</font> and <font name='Courier'>container_memory_working_set_bytes</font>) to detect memory leaks and CPU throttling before they affect gameplay.", bullet_style)),
-        ListItem(Paragraph("<b>Minecraft-Specific Signal:</b> The dashboard tracks the <font name='Courier'>kube_pod_container_status_running</font> metric specifically for the <font name='Courier'>minecraft</font> container. This proves the core application process is alive. While less robust than an application-layer RCON ping, it provides a distinct signal separating the Minecraft container's state from the overall Pod's networking or sidecar states.", bullet_style))
+        ListItem(Paragraph("<b>Minecraft-Specific Signal:</b> The dashboard tracks application-level metrics via the <font name='Courier'>minecraft-exporter</font> sidecar. Specifically, <font name='Courier'>minecraft_players_online</font> visualizes active player counts, and <font name='Courier'>minecraft_rcon_up</font> validates active RCON connectivity to the server. Together, these signals verify that the Minecraft application engine is healthy and accepting TCP connections, providing a robust application-layer check compared to basic container running states (<font name='Courier'>kube_pod_container_status_running</font>).", bullet_style))
     ]
     story.append(ListFlowable(dash_items, bulletType='bullet'))
     story.append(Spacer(1, 10))
