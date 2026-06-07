@@ -140,6 +140,27 @@
         - service.yml
         - backup-cronjob.yml
 
+    - name: Ensure monitoring manifest directory exists
+      file:
+        path: "{{ manifest_dir }}/monitoring"
+        state: directory
+        mode: '0755'
+
+    - name: Copy monitoring Kubernetes manifests
+      copy:
+        src: "k8s/monitoring/{{ item }}"
+        dest: "{{ manifest_dir }}/monitoring/{{ item }}"
+        mode: '0644'
+      loop:
+        - namespace.yml
+        - prometheus-rules.yml
+
+    - name: Copy Helm values for monitoring
+      copy:
+        src: "helm/monitoring-values.yaml"
+        dest: "{{ manifest_dir }}/monitoring-values.yaml"
+        mode: '0644'
+
     # ── Apply manifests ────────────────────────────────────────────────────────
 
     - name: Wait for k3s API server to be fully ready before applying manifests

@@ -35,7 +35,7 @@ spec:
               Pod {{ $labels.pod }} has restarted {{ $value | printf "%.0f" }}
               times in the last 10 minutes. Players cannot connect while the
               pod is cycling. Investigate with kubectl describe and kubectl logs.
-            runbook: "ops-5-writeup/runbooks.md#31-minecraftpodcrashloping"
+            runbook: "ops-5-writeup/ops_5_writeup.pdf#page=2"
 
     - name: minecraft.resources
       rules:
@@ -65,7 +65,7 @@ spec:
               the 85% threshold. Sustained at this level, the OOM killer may
               terminate the Minecraft JVM. Check for memory leaks or unexpected
               processes before the server crashes.
-            runbook: "ops-5-writeup/runbooks.md#32-nodememory-pressurehigh"
+            runbook: "ops-5-writeup/ops_5_writeup.pdf#page=2"
 
         # ── Alert 3: Disk Usage High ────────────────────────────────────────
         # Symptom: The root volume (20GB gp3) is more than 80% full (~16GB).
@@ -95,4 +95,4 @@ spec:
               will fail if disk fills completely. Identify large consumers with
               `du -sh /*` and consider triggering an S3 backup and pruning
               old data.
-            runbook: "ops-5-writeup/runbooks.md#33-nodediskusagehigh"
+            runbook: "ops-5-writeup/ops_5_writeup.pdf#page=2"
